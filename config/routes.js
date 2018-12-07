@@ -1,8 +1,23 @@
 const axios = require('axios');
 const bcrypt = require('bcryptjs');
-const db = require('../database/dbConfig.js');
+const db = require('../database/dbConfig');
+const { authenticate } = require('./middlewares');
+const jwt = require('jsonwebtoken');
+const jwtKey = require('../_secrets/keys').jwtKey;
 
-const { authenticate, generateToken } = require('./middlewares');
+function generateToken(user) {
+  const jwtPayload = {
+    ...user,
+    hello: 'Admin',
+    roles: ['admin', 'root', 'user']
+  };
+
+  const jwtOptions = {
+    expiresIn: '5m'
+  };
+  console.log('token from process.env:', jwtKey);
+  return jwt.sign(jwtPayload, jwtKey, jwtOptions);
+}
 
 module.exports = server => {
   server.post('/api/register', register);
@@ -11,39 +26,38 @@ module.exports = server => {
 };
 
 function register(req, res) {
-  const creds = req.body;
-  const hash = bcrypt.hashSync(creds.password, 10);
-  creds.password = hash;
+  const credentials = req.body;
+  const hash = bcrypt.hashSync(credentials.password, 14);
+  credentials.password = hash;
   db('users')
-    .insert(creds)
-    .then(ids => {
-      const id = ids[0];
-      const token = generateToken({ username: creds.username });
-      res.status(201).json({ newUserId: id, token });
+    .insert(credentials)
+    .then(user => {
+      res.status(201).json(user);
     })
-    .catch(err => {
-      res.status(500).json(err);
-    });
+    .catch(error =>
+      res.status(500).json({ message: "Error", error })
+    );
 }
 
 function login(req, res) {
-  const creds = req.body;
+  const logger = req.body;
+
   db('users')
-    .where({ username: creds.username })
+    .where({ username: logger.username })
     .first()
     .then(user => {
-      if (user && bcrypt.compareSync(creds.password, user.password)) {
-        const token = generateToken({ username: user.username });
-        res.status(200).json({ welcome: user.username, token });
+      if (user && bcrypt.compareSync(logger.password, user.password)) {
+        const token = generateToken(user);
+
+        res
+          .status(200)
+          .json({ message: `Logged In: Welcome ${user.username}!`, token });
       } else {
-        res.status(401).json({ message: 'Username or Password is incorrect.' });
+        res.status(401).json({ message: 'You Shall Not Pass!' });
       }
     })
-    .catch(err => {
-      res.status(500).json(err);
-    });
+    .catch(error => res.status(500).json({ message: 'error', error }));
 }
-
 function getJokes(req, res) {
   axios
     .get('https://safe-falls-22549.herokuapp.com/random_ten')
@@ -51,6 +65,6 @@ function getJokes(req, res) {
       res.status(200).json(response.data);
     })
     .catch(err => {
-      res.status(500).json(err);
+      res.status(500).json({ message: 'Error: No Jokes', error: err });
     });
 }
